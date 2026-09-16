@@ -23,7 +23,7 @@ responses_historical = openmeteo.weather_api(url_historical, params = params)
 response_historical = responses_historical[0]
 
 daily_historical = response_historical.Daily()
-daily_temperature_2m_max = daily_historical.Variables(0).ValuesAsNumpy()
+daily_historical_temperature_2m_max = daily_historical.Variables(0).ValuesAsNumpy()
 
 daily_data_historical = {
     "date": pd.date_range(
@@ -32,7 +32,7 @@ daily_data_historical = {
         freq = pd.Timedelta(seconds = daily_historical.Interval()),
         inclusive = "left"
     ),
-    "temp_actual": daily_temperature_2m_max
+    "temp historical": daily_historical_temperature_2m_max
 }
 daily_dataframe_historical = pd.DataFrame(data = daily_data_historical)
 
@@ -41,7 +41,7 @@ responses_forecast = openmeteo.weather_api(url_forecast, params = params)
 response_forecast = responses_forecast[0]
 
 daily_forecast = response_forecast.Daily()
-daily_temperature_2m_max = daily_forecast.Variables(0).ValuesAsNumpy()
+daily_forecast_temperature_2m_max = daily_forecast.Variables(0).ValuesAsNumpy()
 
 daily_data_forecast = {
     "date": pd.date_range(
@@ -50,14 +50,14 @@ daily_data_forecast = {
         freq = pd.Timedelta(seconds = daily_forecast.Interval()),
         inclusive = "left"
     ),
-    "temp_forecast": daily_temperature_2m_max
+    "temp forecast": daily_forecast_temperature_2m_max
 }
 daily_dataframe_forecast = pd.DataFrame(data = daily_data_forecast)
 
 daily_dataframe = pd.merge(daily_dataframe_historical, daily_dataframe_forecast, on = "date", how = "outer")
 
-daily_dataframe["error"] = daily_dataframe["temp_actual"] - daily_dataframe["temp_forecast"]
-baseline_mae = daily_dataframe["error"].abs().mean()
+daily_dataframe["forecast error"] = daily_dataframe["temp historical"] - daily_dataframe["temp forecast"]
+baseline_mae = daily_dataframe["forecast error"].abs().mean()
 
 print(f"Coordinates: {response_historical.Latitude()}°N {response_historical.Longitude()}°E")
 print(f"Elevation: {response_historical.Elevation()} m asl")
