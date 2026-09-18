@@ -2,6 +2,8 @@ import openmeteo_requests
 
 import pandas as pd
 import requests_cache
+
+from typing import Any
 from retry_requests import retry
 from sklearn.linear_model import LinearRegression, Ridge
 from sklearn.metrics import mean_absolute_error
@@ -39,7 +41,7 @@ daily_forecast_precipitation_sum = daily_forecast.Variables(1).ValuesAsNumpy()
 daily_forecast_wind_speed_10m_max = daily_forecast.Variables(2).ValuesAsNumpy()
 daily_forecast_relative_humidity_2m_mean = daily_forecast.Variables(3).ValuesAsNumpy()
 
-daily_data_historical = {
+daily_data_historical: dict[str, Any] = {
     "date": pd.date_range(
         start = pd.to_datetime(daily_historical.Time(), unit = "s", utc = True),
         end =  pd.to_datetime(daily_historical.TimeEnd(), unit = "s", utc = True),
@@ -48,7 +50,7 @@ daily_data_historical = {
     )
 }
 
-daily_data_forecast = {
+daily_data_forecast: dict[str, Any] = {
     "date": pd.date_range(
         start = pd.to_datetime(daily_forecast.Time(), unit = "s", utc = True),
         end =  pd.to_datetime(daily_forecast.TimeEnd(), unit = "s", utc = True),
