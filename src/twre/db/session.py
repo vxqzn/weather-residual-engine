@@ -33,6 +33,13 @@ def init_db() -> None:
     with get_connection() as conn:
         conn.execute(sql)
     print("DB initialized successfully")
+    
+    # with get_connection() as conn:
+    #     with conn.cursor() as cur:
+    #         cur.execute("TRUNCATE TABLE weather_observations CASCADE;")
+    #         cur.execute("TRUNCATE TABLE forecast_predictions CASCADE;")
+    #         cur.execute("TRUNCATE TABLE realized_errors CASCADE;")
+    # print("DB tables truncated successfully")
 
 def close_pool() -> None:
     global _pool

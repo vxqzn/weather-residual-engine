@@ -3,9 +3,18 @@ import requests
 from datetime import date as dt_date, datetime, timedelta, timezone
 from retry_requests import retry
 from pydantic import ValidationError
+from contextlib import contextmanager
 
 from twre.db.session import get_connection
 from twre.schemas.weather import ObservationRecord, ForecastRecord
+
+@contextmanager
+def resolve_connection(conn=None):
+    if conn is not None:
+        yield conn
+    else:
+        with get_connection() as conn:
+            yield conn
 
 ARCHIVE_API_URL = "https://archive-api.open-meteo.com/v1/archive"
 FORECAST_API_URL = "https://historical-forecast-api.open-meteo.com/v1/forecast"
@@ -49,6 +58,8 @@ COMPUTE_ERRORS_SQL = """
         ABS(o.temp_max - f.forecasted_temp_max) AS absolute_error_temp_max
     FROM forecast_predictions f
     JOIN weather_observations o ON f.target_date = o.date
+    WHERE (%(start_date)s::date IS NULL OR f.target_date >= %(start_date)s)
+        AND (%(end_date)s::date IS NULL OR f.target_date <= %(end_date)s)
     ON CONFLICT (target_date, issued_date) DO UPDATE SET
         error_temp_max = EXCLUDED.error_temp_max,
         absolute_error_temp_max = EXCLUDED.absolute_error_temp_max;
@@ -59,11 +70,11 @@ def get_client() -> openmeteo_requests.Client:
     return openmeteo_requests.Client(session=session)
 
 def parse_observations(
-        start_date: dt_date,
-        temps: list[float],
-        precips: list[float],
-        winds: list[float],
-        humidities: list[float],
+    start_date: dt_date,
+    temps: list[float],
+    precips: list[float],
+    winds: list[float],
+    humidities: list[float],
     ) -> list[ObservationRecord]:
         records: list[ObservationRecord] = []
         for i in range(len(temps)):
@@ -82,8 +93,34 @@ def parse_observations(
                 continue
         return records
 
-def ingest_observations(start_date: str, end_date: str) -> int:
-    client = get_client()
+def parse_forecasts(
+    start_date: dt_date,
+    temps: list[float],
+    precips: list[float],
+    winds: list[float],
+    humidities: list[float],
+    ) -> list[ForecastRecord]:
+        records: list[ForecastRecord] = []
+        for i in range(len(temps)):
+            target_dt = start_date + timedelta(days=i)
+            issued_dt = target_dt - timedelta(days=1)
+            try:
+                record = ForecastRecord(
+                    target_date=target_dt,
+                    issued_date=issued_dt,
+                    forecasted_temp_max=float(temps[i]),
+                    forecasted_precipitation_sum=float(precips[i]),
+                    forecasted_wind_speed_max=float(winds[i]),
+                    forecasted_relative_humidity_mean=float(humidities[i])
+                )
+                records.append(record)
+            except ValidationError as err:
+                print(f"Skipping corrupted forecast for {target_dt}: {err}")
+                continue
+        return records
+
+def ingest_observations(start_date: str, end_date: str, conn=None, client=None) -> int:
+    client = client or get_client()
     params = {
         "latitude": LATITUDE,
         "longitude": LONGITUDE,
@@ -104,14 +141,15 @@ def ingest_observations(start_date: str, end_date: str) -> int:
     records = parse_observations(start_dt, temps, precips, winds, humidities)
     
     payloads = [r.model_dump() for r in records]
-    with get_connection() as conn:
-        with conn.cursor() as cur:
+    
+    with resolve_connection(conn) as active_conn:
+        with active_conn.cursor() as cur:
             cur.executemany(UPSERT_OBSERVATION_SQL, payloads)
 
     return len(payloads)
 
-def ingest_forecasts(start_date: str, end_date: str) -> int:
-    client = get_client()
+def ingest_forecasts(start_date: str, end_date: str, conn=None, client=None) -> int:
+    client = client or get_client()
     params = {
         "latitude": LATITUDE,
         "longitude": LONGITUDE,
@@ -129,37 +167,20 @@ def ingest_forecasts(start_date: str, end_date: str) -> int:
     winds = daily.Variables(2).ValuesAsNumpy()
     humidities = daily.Variables(3).ValuesAsNumpy()
 
-    records: list[ForecastRecord] = []
-    for i in range(len(temps)):
-        row_date = start_dt + timedelta(days=i)
-
-        target_dt = start_dt + timedelta(days=i)
-        issued_dt = target_dt - timedelta(days=1)
-        try:
-            record = ForecastRecord(
-                target_date=target_dt,
-                issued_date=issued_dt,
-                forecasted_temp_max=float(temps[i]),
-                forecasted_precipitation_sum=float(precips[i]),
-                forecasted_wind_speed_max=float(winds[i]),
-                forecasted_relative_humidity_mean=float(humidities[i])
-            )
-            records.append(record)
-        except ValidationError as err:
-            print(f"Skipping corrupted forecast for {row_date}: {err}")
-            continue
+    records = parse_forecasts(start_dt, temps, precips, winds, humidities)
 
     payloads = [r.model_dump() for r in records]
-    with get_connection() as conn:
-        with conn.cursor() as cur:
+    
+    with resolve_connection(conn) as active_conn:
+        with active_conn.cursor() as cur:
             cur.executemany(UPSERT_FORECAST_SQL, payloads)
-
+    
     return len(payloads)
 
-def compute_realized_errors() -> int:
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(COMPUTE_ERRORS_SQL)
+def compute_realized_errors(start_date: dt_date | None = None, end_date: dt_date | None = None, conn=None) -> int:
+    with resolve_connection(conn) as active_conn:
+        with active_conn.cursor() as cur:
+            cur.execute(COMPUTE_ERRORS_SQL, {"start_date": start_date, "end_date": end_date})
             return cur.rowcount
 
 if __name__ == "__main__":

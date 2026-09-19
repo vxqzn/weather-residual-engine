@@ -25,7 +25,8 @@ CREATE TABLE IF NOT EXISTS forecast_predictions (
     CONSTRAINT check_temp_bounds CHECK (forecasted_temp_max BETWEEN -50 AND 60),
     CONSTRAINT check_precipitation_positive CHECK (forecasted_precipitation_sum >= 0),
     CONSTRAINT check_wind_speed_positive CHECK (forecasted_wind_speed_max >= 0),
-    CONSTRAINT check_humidity_pct CHECK (forecasted_relative_humidity_mean BETWEEN 0 AND 100)
+    CONSTRAINT check_humidity_pct CHECK (forecasted_relative_humidity_mean BETWEEN 0 AND 100),
+    CONSTRAINT check_temporal_order CHECK (issued_date <= target_date)
 );
 
 CREATE TABLE IF NOT EXISTS realized_errors (
