@@ -3,18 +3,10 @@ import requests
 from datetime import date as dt_date, datetime, timedelta, timezone
 from retry_requests import retry
 from pydantic import ValidationError
-from contextlib import contextmanager
+from twre.db.session import resolve_connection
 
 from twre.db.session import get_connection
 from twre.schemas.weather import ObservationRecord, ForecastRecord
-
-@contextmanager
-def resolve_connection(conn=None):
-    if conn is not None:
-        yield conn
-    else:
-        with get_connection() as conn:
-            yield conn
 
 ARCHIVE_API_URL = "https://archive-api.open-meteo.com/v1/archive"
 FORECAST_API_URL = "https://historical-forecast-api.open-meteo.com/v1/forecast"

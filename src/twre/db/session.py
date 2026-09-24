@@ -22,6 +22,14 @@ def get_pool() -> ConnectionPool:
     return _pool
 
 @contextmanager
+def resolve_connection(conn=None):
+    if conn is not None:
+        yield conn
+    else:
+        with get_connection() as conn:
+            yield conn
+            
+@contextmanager
 def get_connection():
     pool = get_pool()
     with pool.connection() as conn:

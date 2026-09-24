@@ -1,6 +1,6 @@
-.cache*
 .env
 .venv
+.cache*
 *.egg-info
 .pytest_cache/
 __pycache__/

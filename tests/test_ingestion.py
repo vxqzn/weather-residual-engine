@@ -1,11 +1,9 @@
 import pytest
 import numpy as np
 from unittest.mock import MagicMock
-from pydantic import ValidationError
-from datetime import date as dt_date, timedelta, datetime, timezone
+from datetime import date as dt_date, datetime, timezone
 
 from twre.db.session import get_connection
-from twre.schemas.weather import ObservationRecord
 from twre.ingestion.worker import ingest_observations, ingest_forecasts, parse_observations, parse_forecasts, compute_realized_errors
 
 @pytest.fixture
@@ -18,7 +16,7 @@ def mock_openmeteo_client():
     
     data_map = {
         0: np.array([20.0, 21.0, 22.0, 23.0, 24.0, 25.0, 21.5]),   # temps
-        1: np.array([0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6]),      # precips
+        1: np.array([0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6]),          # precips
         2: np.array([10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0]),   # winds
         3: np.array([50.0, 51.0, 52.0, 53.0, 54.0, 55.0, 56.0]),   # humidities
     }
