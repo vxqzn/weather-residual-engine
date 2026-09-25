@@ -1,0 +1,10 @@
+{
+    "model_id": "model_20260925094150",
+    "created_at": "2026-09-25T09:41:50.677582+00:00",
+    "git_commit": "fd65123",
+    "train_mae": 0.41545375926336825,
+    "holdout_baseline_mae": 1.1407478860388063,
+    "holdout_model_mae": 0.7216162933162672,
+    "is_promoted": true,
+    "promotion_reason": "cold start candidate model promoted as there is currently no champion (cold start)"
+}

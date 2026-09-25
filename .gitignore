@@ -4,4 +4,4 @@
 *.egg-info
 .pytest_cache/
 __pycache__/
-artifacts/**
+artifacts/models/*.tmp
