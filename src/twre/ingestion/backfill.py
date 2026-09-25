@@ -4,8 +4,8 @@ from twre.ingestion.worker import ingest_observations, ingest_forecasts, compute
 from datetime import date
 
 START_DATE = "2023-12-18"
-END_DATE = "2025-12-31"
-EXPECTED_ROWS = 745
+END_DATE = "2026-09-24"
+EXPECTED_ROWS = 1012
 
 def verify_ingestion(conn=None, expected_count: int = EXPECTED_ROWS) -> dict[str, int]:
     with resolve_connection(conn) as active_conn:
