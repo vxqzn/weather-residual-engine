@@ -1,0 +1,11 @@
+.git
+.gitignore
+.venv
+.cache*
+*.egg-info
+.pytest_cache/
+__pycache__/
+artifacts/models/*.tmp
+tests/
+research/
+*.md
