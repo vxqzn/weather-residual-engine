@@ -1,19 +1,11 @@
 from contextlib import contextmanager
-from twre.db.session import get_connection
+from twre.db.session import get_connection, resolve_connection
 from twre.ingestion.worker import ingest_observations, ingest_forecasts, compute_realized_errors
 from datetime import date
 
 START_DATE = "2023-12-18"
 END_DATE = "2025-12-31"
 EXPECTED_ROWS = 745
-
-@contextmanager
-def resolve_connection(conn=None):
-    if conn is not None:
-        yield conn
-    else:
-        with get_connection() as conn:
-            yield conn
 
 def verify_ingestion(conn=None, expected_count: int = EXPECTED_ROWS) -> dict[str, int]:
     with resolve_connection(conn) as active_conn:
