@@ -1,4 +1,4 @@
-# Timișoara Weather Residual Engine (TWRE)
+# Weather Residual Engine
 
 [![Daily Ingestion, Retraining & Docker Audit](https://github.com/vxqzn/weather-residual-engine/actions/workflows/daily_pipeline.yml/badge.svg)](https://github.com/vxqzn/weather-residual-engine/actions/workflows/daily_pipeline.yml)
 [![Live Service](https://img.shields.io/badge/Render-Live%20Endpoint-brightgreen?style=flat&logo=render)](https://weather-residual-engine.onrender.com/health)
@@ -6,7 +6,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-Serving%20%3C%202ms-009688?style=flat&logo=fastapi)](src/twre/service/app.py)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16%20Neon-336791?style=flat&logo=postgresql)](sql/01_ddl.sql)
 
-Autonomous, self-operating MLOps microservice that continuously learns, predicts, and corrects localized microclimate bias in raw Numerical Weather Prediction (NWP) temperature forecasts for Timișoara, Romania ($45.7537^\circ\text{N}, 21.2257^\circ\text{E}$, elevation $\sim 90\text{m}$).
+Autonomous, self-operating MLOps microservice that continuously learns, predicts, and corrects localized microclimate bias in raw Numerical Weather Prediction (NWP) temperature forecasts (evaluated on Timișoara, Romania: $45.7537^\circ\text{N}, 21.2257^\circ\text{E}$, elevation $\sim 90\text{m}$).
 
 The engine operates 24/7 with zero ongoing cloud infrastructure costs: it ingests historical forecasts and actuals via Open-Meteo, enforces causal temporal integrity in PostgreSQL, executes automated champion-challenger model retraining, and serves bias-corrected forecasts through a sub-2ms FastAPI layer deployed on Render.
 
@@ -32,26 +32,32 @@ The engine was evaluated on a strictly separated temporal split: trained on the 
 
 ```mermaid
 flowchart TD
-    subgraph Ingestion["Daily Ingestion & Data Contracts (02:00 UTC)"]
-        OM["Open-Meteo Historical & Forecast APIs"] --> Worker["Ingestion Worker\n(src/twre/ingestion/worker.py)"]
-        Worker --> Pydantic["Pydantic V2 Quarantining Gate\n(ObservationRecord, ForecastRecord)"]
-        Pydantic --> DB[("Neon PostgreSQL Store (AWS Frankfurt)\n1,012+ Contiguous Calendar Records\nON CONFLICT DO UPDATE Idempotency")]
+    classDef ext fill:#1e293b,stroke:#38bdf8,stroke-width:1px,color:#f0f9ff;
+    classDef db fill:#042f2e,stroke:#14b8a6,stroke-width:1px,color:#f0fdfa;
+    classDef ml fill:#2e1065,stroke:#c084fc,stroke-width:1px,color:#faf5ff;
+    classDef gate fill:#451a03,stroke:#f59e0b,stroke-width:1px,color:#fffbeb;
+    classDef srv fill:#064e3b,stroke:#22c55e,stroke-width:1px,color:#f0fdf4;
+
+    subgraph Ingestion["1. Ingestion & Data Contracts (02:00 UTC)"]
+        OM["Open-Meteo Historical & Forecast APIs"]:::ext --> Worker["Ingestion Worker<br/>(src/twre/ingestion/worker.py)"]:::ext
+        Worker --> Pydantic["Pydantic V2 Quarantining Gate<br/>(ObservationRecord, ForecastRecord)"]:::ext
+        Pydantic --> DB[("Neon PostgreSQL Store (AWS Frankfurt)<br/>1,012+ Contiguous Calendar Records<br/>ON CONFLICT DO UPDATE Idempotency")]:::db
     end
 
-    subgraph MLOps["Continuous Retraining & Champion-Challenger Gating"]
-        DB --> FeatStore["Causal Feature Pipeline (pipeline.py)\nZero-leakage shifts: error_lag_1, rolling_bias_7"]
-        FeatStore --> Challenger["Train Challenger Regressor (train.py)"]
-        Challenger --> Gate{"Promotion Gate (gate.py)\nChallenger MAE < Champion MAE - Margin?"}
-        Champion["Active Champion Binary\n(artifacts/models/champion.joblib)"] --> Gate
-        Gate -- Promoted --> Atomic["Atomic Swap (.tmp -> os.replace)\nAppend to artifacts/models/ledger.json"]
-        Gate -- Rejected --> LogRejection["Log Rejection in ledger.json\nRetain Incumbent Champion"]
+    subgraph MLOps["2. Continuous Retraining & Gating Loop"]
+        DB --> FeatStore["Causal Feature Pipeline (pipeline.py)<br/>Zero-leakage shifts: error_lag_1, rolling_bias_7"]:::ml
+        FeatStore --> Challenger["Train Challenger Regressor (train.py)"]:::ml
+        Challenger --> Gate{"Promotion Gate (gate.py)<br/><b>Challenger MAE < Champion MAE - Margin?</b>"}:::gate
+        Champion["Active Champion Binary<br/>(artifacts/models/champion.joblib)"]:::ml --> Gate
+        Gate -- Promoted --> Atomic["Atomic Swap (.tmp -> os.replace)<br/>Append to artifacts/models/ledger.json"]:::ml
+        Gate -- Rejected --> LogRejection["Log Rejection in ledger.json<br/>Retain Incumbent Champion"]:::ml
     end
 
-    subgraph Serving["High-Throughput Serving Layer (FastAPI)"]
-        Atomic -. Non-blocking st_mtime poll .-> ModelEngine["In-Memory ModelEngine (engine.py)"]
-        ModelEngine --> Cache["Lifespan Feature Pre-Warming Cache\n(< 2.2ms Latency SLA)"]
-        Cache --> Endpoints["FastAPI REST Endpoints\nGET /health | GET /metrics | GET /predict"]
-        Endpoints --> Render["Render Cloud Microservice (24/7 Free Tier)\nhttps://weather-residual-engine.onrender.com"]
+    subgraph Serving["3. High-Throughput Serving Layer (FastAPI)"]
+        Atomic -. Non-blocking st_mtime poll .-> ModelEngine["In-Memory ModelEngine (engine.py)"]:::srv
+        ModelEngine --> Cache["Lifespan Feature Pre-Warming Cache<br/><b>(&lt; 2.2ms Latency SLA)</b>"]:::srv
+        Cache --> Endpoints["FastAPI REST Endpoints<br/>GET /health | GET /metrics | GET /predict"]:::srv
+        Endpoints --> Render["Render Cloud Microservice (24/7 Free Tier)<br/>https://weather-residual-engine.onrender.com"]:::srv
     end
 ```
 
