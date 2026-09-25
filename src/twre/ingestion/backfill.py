@@ -28,8 +28,8 @@ def verify_ingestion(conn=None, expected_count: int = EXPECTED_ROWS) -> dict[str
                 "expected": expected_count
             }
 
-def run_backfill(start_date: str = START_DATE, end_date: str = END_DATE) -> None:
-    with get_connection() as conn:
+def run_backfill(start_date: str = START_DATE, end_date: str = END_DATE, conn=None) -> None:
+    with resolve_connection(conn) as conn:
         start_dt = date.fromisoformat(start_date)
         end_dt = date.fromisoformat(end_date)
         
