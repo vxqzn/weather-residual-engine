@@ -1,0 +1,43 @@
+name: daily ingestion, retraining and docker audit
+
+on:
+    schedule:
+        - cron: "0 2 * * *" 
+    workflow_dispatch:
+    push:
+        branches: [ master ]
+
+jobs:
+    pipeline:
+        runs-on: ubuntu-latest
+        steps:
+            - name: checkout repository
+              uses: actions/checkout@v4
+
+            - name: setup python 3.11
+              uses: actions/setup-python@v5
+              with:
+                python-version: 3.11
+                cache: "pip"
+
+            - name: install dependencies
+              run: |
+                python -m pip install --upgrade pip
+                pip install -e ".[dev]"
+
+            - name: run pytest suite
+              env:
+                DATABASE_URL: ${{ secrets.DATABASE_URL }}  
+              run: |
+                pytest
+
+            - name: run daily pipeline runner
+              env:
+                    DATABASE_URL: ${{ secrets.DATABASE_URL }}  
+              run: |
+                    python -m twre.pipeline.daily_runner
+            
+            - name: run docker audit
+              run: |
+                    docker build -t twre:latest .
+                    docker images twre:latest
