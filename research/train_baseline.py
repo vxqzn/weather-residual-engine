@@ -5,7 +5,7 @@ import requests_cache
 
 from typing import Any
 from retry_requests import retry
-from sklearn.linear_model import LinearRegression, Ridge
+from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error
 
 cache_session = requests_cache.CachedSession('.cache', expire_after = 3600)

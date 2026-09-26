@@ -44,7 +44,7 @@ def evaluate_and_promote(
         if is_promoted:
             reason = f"candidate model promoted, outperforms current champion by {delta:.4f} degC (margin={margin:.4f} degC)"
         else:
-            reason = f"candidate model not promoted, doesn't outperform current champion by {margin:.4f} degC"
+            reason = f"candidate model not promoted, underperforms current champion by {abs(delta):.4f} degC (margin={margin:.4f} degC)"
 
     metadata = ModelMetadata(
         model_id=f"model_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",

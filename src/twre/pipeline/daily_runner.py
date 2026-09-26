@@ -11,7 +11,7 @@ from twre.features.pipeline import fetch_training_data
 from twre.models.train import split_train_holdout, train_candidate
 from twre.models.gate import evaluate_and_promote
 
-def run_daily_pipeline(lookback_days: int = 14, conn=None) -> dict[str, Any]:
+def run_daily_pipeline(lookback_days: int = 14, holdout_days: int = 90, conn=None) -> dict[str, Any]:
     with resolve_connection(conn) as active_conn:
         today = date.today()
         start_date = (today - timedelta(days=lookback_days)).isoformat()
@@ -54,7 +54,7 @@ def run_daily_pipeline(lookback_days: int = 14, conn=None) -> dict[str, Any]:
         print("\ntraining and evaluating candidate model...")
         
         raw_df = fetch_training_data(conn=active_conn)
-        X_train, y_train, X_holdout, y_holdout = split_train_holdout(raw_df)
+        X_train, y_train, X_holdout, y_holdout = split_train_holdout(raw_df, holdout_days=holdout_days)
         candidate = train_candidate(X_train, y_train)
         
         metadata, is_promoted = evaluate_and_promote(
@@ -77,7 +77,9 @@ def run_daily_pipeline(lookback_days: int = 14, conn=None) -> dict[str, Any]:
             "candidate_model_id": metadata.model_id,
             "is_promoted": is_promoted,
             "holdout_model_mae": metadata.holdout_model_mae,
-            "promotion_reason": metadata.promotion_reason
+            "promotion_reason": metadata.promotion_reason,
+            "train_window": f"{X_train.index.min().date()} to {X_train.index.max().date()}",
+            "holdout_window": f"{X_holdout.index.min().date()} to {X_holdout.index.max().date()}" 
         }
         
 if __name__ == "__main__":

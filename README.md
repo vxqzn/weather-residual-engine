@@ -8,7 +8,7 @@
 
 Autonomous, self-operating MLOps microservice that continuously learns, predicts, and corrects localized microclimate bias in raw Numerical Weather Prediction (NWP) temperature forecasts (evaluated on Timișoara, Romania: $45.7537^\circ\text{N}, 21.2257^\circ\text{E}$, elevation $\sim 90\text{m}$).
 
-The engine operates 24/7 with zero ongoing cloud infrastructure costs: it ingests historical forecasts and actuals via Open-Meteo, enforces causal temporal integrity in PostgreSQL, executes automated champion-challenger model retraining, and serves bias-corrected forecasts through a sub-2ms FastAPI layer deployed on Render.
+The engine operates 24/7 with zero ongoing cloud infrastructure costs: it ingests historical forecasts and actuals via Open-Meteo, enforces chronological temporal integrity in PostgreSQL, executes automated champion-challenger model retraining, and serves bias-corrected forecasts through a sub-2ms FastAPI layer deployed on Render.
 
 ---
 
@@ -16,11 +16,10 @@ The engine operates 24/7 with zero ongoing cloud infrastructure costs: it ingest
 
 The engine was evaluated on a strictly separated temporal split: trained on the **2024 Leap Year (366 days)** and evaluated out-of-sample on the **full 2025 calendar year (365 days)**.
 
-| Performance Metric | Raw Open-Meteo NWP Baseline | TWRE Residual Ridge Model | Absolute Delta ($\Delta$) | Relative Improvement |
+| Performance Metric | Raw Open-Meteo NWP Baseline | TWRE Residual Linear Model (OLS) | Absolute Delta ($\Delta$) | Relative Improvement |
 | :--- | :--- | :--- | :--- | :--- |
 | **365-Day Holdout MAE (2025)** | `1.1407°C` | `0.7216°C` | `-0.4191°C` | **-36.7%** |
-| **Training Set MAE (2024)** | `1.2826°C` | `0.4155°C` | `-0.8671°C` | **-67.6%** |
-| **Winter Regime Drift MAE (Holdout Tail)** | `0.5722°C` | `0.5676°C` | `-0.0046°C` | Outperforms during regime shift |
+| **Training Set MAE (2024)** | `0.5145°C` | `0.4155°C` | `-0.0991°C` | **-19.3%** |
 | **Prediction Latency (Cached Hit)** | N/A (External API: 250ms+) | **`1.62ms – 2.14ms`** | $\sim 100\times$ faster | Live verified on Render |
 | **Active Champion Provenance** | Uncorrected Baseline | `model_20260925094150` | Git SHA: `fd65123` | Persisted in `ledger.json` |
 
@@ -45,8 +44,9 @@ flowchart TD
     end
 
     subgraph MLOps["2. Continuous Retraining & Gating Loop"]
-        DB --> FeatStore["Causal Feature Pipeline (pipeline.py)<br/>Zero-leakage shifts: error_lag_1, rolling_bias_7"]:::ml
-        FeatStore --> Challenger["Train Challenger Regressor (train.py)"]:::ml
+        DB --> FeatStore["Temporal Feature Pipeline (pipeline.py)<br/>Zero-leakage shifts: error_lag_1, rolling_bias_7"]:::ml
+        Challenger["Train Challenger Regressor (train.py)"]:::ml
+        FeatStore --> Challenger
         Challenger --> Gate{"Promotion Gate (gate.py)<br/><b>Challenger MAE < Champion MAE - Margin?</b>"}:::gate
         Champion["Active Champion Binary<br/>(artifacts/models/champion.joblib)"]:::ml --> Gate
         Gate -- Promoted --> Atomic["Atomic Swap (.tmp -> os.replace)<br/>Append to artifacts/models/ledger.json"]:::ml
@@ -135,7 +135,7 @@ $$\hat{T}^{\text{corrected}}_{t+1} = T^{\text{forecast}}_{t+1} + \hat{\epsilon}_
 
 ---
 
-### Causal Feature Store (Zero Lookahead Leakage)
+### Temporal Feature Pipeline (Zero Lookahead Leakage)
 In operational weather prediction, true actual temperatures for day $t$ are physically unobserved when issuing day $t$'s forecast on day $t-1$. [`src/twre/features/pipeline.py`](src/twre/features/pipeline.py) enforces strict causal lag separation:
 
 * **Lagged Error ($\epsilon_{t-1}$):** Realized error from the previous day, strictly shifted by 1 index (`.shift(1)`).
@@ -153,7 +153,8 @@ To prevent degraded or overfitted models from entering production, [`src/twre/mo
 2. **Challenger vs. Champion Evaluation:** When an active champion exists, a challenger model is promoted only if it beats the incumbent champion on the unseen holdout partition by margin $\delta$:
    $$\text{MAE}_{\text{challenger}} < \text{MAE}_{\text{champion}} - \delta$$
 3. **Atomic File Persistence:** Model serialization utilizes temporary `.tmp` file dumps followed by POSIX/NTFS atomic swaps (`os.replace`). This guarantees that concurrent ASGI reader threads never read partial or corrupted binary streams.
-4. **Immutable Audit Ledger:** Model metadata (Git commit SHA, training MAE, holdout baseline MAE, holdout candidate MAE, promotion verdict, timestamp) is appended to [`artifacts/models/ledger.json`](artifacts/models/ledger.json).
+4. **Dynamic Temporal Windows:** Rather than hardcoded calendar years, `split_train_holdout()` trains across an expanding historical window (asserting $\ge 365$ days) and benchmarks against a dynamic 90-day contiguous rolling holdout with strict non-overlapping temporal boundaries (`train.max() < holdout.min()`).
+5. **Immutable Audit Ledger & Git Persistence:** Model metadata (Git commit SHA, training MAE, holdout baseline MAE, holdout candidate MAE, promotion verdict, timestamp) is appended to [`artifacts/models/ledger.json`](artifacts/models/ledger.json). In CI/CD, promoted champions and ledger updates are automatically committed back to `master` (`[skip ci]`), preserving model provenance beyond ephemeral runner lifecycles.
 
 ---
 

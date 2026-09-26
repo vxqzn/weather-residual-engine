@@ -10,6 +10,8 @@ on:
 jobs:
     pipeline:
         runs-on: ubuntu-24.04
+        permissions:
+            contents: write
         services:
             postgres:
                 image: postgres:16-alpine
@@ -56,6 +58,13 @@ jobs:
                     DATABASE_URL: ${{ secrets.DATABASE_URL }}  
               run: |
                     python -m twre.pipeline.daily_runner
+              
+            - name: commit and push model artifacts
+              run: |
+                    git config user.name "github-actions[bot]"
+                    git config user.email "github-actions[bot]@users.noreply.github.com"
+                    git add artifacts/models/champion.joblib artifacts/models/ledger.json
+                    git diff --staged --quiet || (git commit -m "chore(ci): update champion and audit ledger [skip ci]" && git push origin master)
             
             - name: run docker audit
               run: |

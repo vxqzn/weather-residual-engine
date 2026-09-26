@@ -4,4 +4,8 @@
 *.egg-info
 .pytest_cache/
 __pycache__/
+artifacts/models/model_*
 artifacts/models/*.tmp
+
+!artifacts/models/champion.joblib
+!artifacts/models/ledger.json
