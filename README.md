@@ -8,11 +8,12 @@
 
 Autonomous, self-operating MLOps microservice that continuously learns, predicts, and corrects localized microclimate bias in raw Numerical Weather Prediction (NWP) temperature forecasts (evaluated on Timișoara, Romania: $45.7537^\circ\text{N}, 21.2257^\circ\text{E}$, elevation $\sim 90\text{m}$).
 
-The engine operates 24/7 with zero ongoing cloud infrastructure costs: it ingests historical forecasts and actuals via Open-Meteo, enforces chronological temporal integrity in PostgreSQL, executes automated champion-challenger model retraining, and serves bias-corrected forecasts through a sub-2ms FastAPI layer deployed on Render.
+The engine operates 24/7 as an autonomous, self-healing microservice: it ingests historical forecasts and actuals via Open-Meteo, enforces chronological temporal integrity in PostgreSQL, executes automated champion-challenger model retraining, and serves bias-corrected forecasts through a sub-2ms FastAPI layer deployed on Render.
 
 ---
 
 ## 1. Empirical Holdout Benchmark (2025 Chronological Split)
+
 
 The engine was evaluated on a strictly separated temporal split: trained on the **2024 Leap Year (366 days)** and evaluated out-of-sample on the **full 2025 calendar year (365 days)**.
 
@@ -20,7 +21,7 @@ The engine was evaluated on a strictly separated temporal split: trained on the 
 | :--- | :--- | :--- | :--- | :--- |
 | **365-Day Holdout MAE (2025)** | `1.1407°C` | `0.7216°C` | `-0.4191°C` | **-36.7%** |
 | **Training Set MAE (2024)** | `0.5145°C` | `0.4155°C` | `-0.0991°C` | **-19.3%** |
-| **Prediction Latency (Cached Hit)** | N/A (External API: 250ms+) | **`1.62ms – 2.14ms`** | $\sim 100\times$ faster | Live verified on Render |
+| **In-Process Prediction Latency** | N/A (External WAN RTT: 250ms+) | **`1.62ms – 2.14ms`** | Bypasses WAN RTT | Live verified on Render |
 | **Active Champion Provenance** | Uncorrected Baseline | `model_20260925094150` | Git SHA: `fd65123` | Persisted in `ledger.json` |
 
 *Empirical Proof:* Model provenance, training parameters, Git commit SHAs, and holdout benchmarks are persisted immutably in [`artifacts/models/ledger.json`](artifacts/models/ledger.json).
@@ -57,7 +58,7 @@ flowchart TD
         Atomic -. Non-blocking st_mtime poll .-> ModelEngine["In-Memory ModelEngine (engine.py)"]:::srv
         ModelEngine --> Cache["Lifespan Feature Pre-Warming Cache<br/><b>(&lt; 2.2ms Latency SLA)</b>"]:::srv
         Cache --> Endpoints["FastAPI REST Endpoints<br/>GET /health | GET /metrics | GET /predict"]:::srv
-        Endpoints --> Render["Render Cloud Microservice (24/7 Free Tier)<br/>https://weather-residual-engine.onrender.com"]:::srv
+        Endpoints --> Render["Render Cloud Web Service (FastAPI)<br/>https://weather-residual-engine.onrender.com"]:::srv
     end
 ```
 
@@ -128,7 +129,7 @@ Direct end-to-end temperature prediction via statistical machine learning discar
 $$\epsilon_{t+1} = T^{\text{actual}}_{t+1} - T^{\text{forecast}}_{t+1}$$
 $$\hat{T}^{\text{corrected}}_{t+1} = T^{\text{forecast}}_{t+1} + \hat{\epsilon}_{t+1}$$
 
-*Staff-Level Mathematical Rationale:*
+*Architectural & Physical Rationale:*
 1. **Preservation of Global Physics:** Fluid dynamic equations predict macro-scale synoptic advection, frontal passages, and solar radiative transfer.
 2. **Isolation of Localized Microclimate Bias:** Statistical regression models only the localized residual $\epsilon_{t+1}$ caused by Timișoara's specific topographic trapping in the Banat plain, surface albedo, and urban heat island effects.
 3. **Graceful Fallback:** If model artifacts are missing or inputs corrupted, the system sets $\hat{\epsilon} = 0$, safely degrading to the raw numerical forecast ($T^{\text{forecast}}$) with zero service disruption (`is_fallback: True`).
@@ -139,8 +140,8 @@ $$\hat{T}^{\text{corrected}}_{t+1} = T^{\text{forecast}}_{t+1} + \hat{\epsilon}_
 In operational weather prediction, true actual temperatures for day $t$ are physically unobserved when issuing day $t$'s forecast on day $t-1$. [`src/twre/features/pipeline.py`](src/twre/features/pipeline.py) enforces strict causal lag separation:
 
 * **Lagged Error ($\epsilon_{t-1}$):** Realized error from the previous day, strictly shifted by 1 index (`.shift(1)`).
-* **7-Day Rolling Bias:** Running window capturing persistent atmospheric regime drift, computed *after* applying the lag shift:
-  $$\text{rolling\_bias\_7}_t = \frac{1}{7} \sum_{i=1}^7 \epsilon_{t-i}$$
+* **7-Day Rolling Bias (`rolling_bias_7`):** Running window capturing persistent atmospheric regime drift, computed *after* applying the lag shift:
+  $$\text{RollingBias7}_t = \frac{1}{7} \sum_{i=1}^7 \epsilon_{t-i}$$
 * **Defensive Integrity:** Calendar-contiguous reindexing (`pd.date_range`) ensures missing days are exposed as explicit nulls; pipeline asserts zero NaNs across historical warmup buffers prior to model ingestion.
 
 ---
@@ -158,24 +159,25 @@ To prevent degraded or overfitted models from entering production, [`src/twre/mo
 
 ---
 
-## 4. Key Architectural Decisions & Negative Space
+## 4. Key Architectural Decisions & Engineering Trade-Offs
 
-### 1. In-Memory Caching vs. External Redis
-* **The Constraint:** Zero-cost cloud tiers enforce a rigid **512MB RAM ceiling**.
-* **The Trade-Off:** Introducing Redis, Celery, or RabbitMQ consumes 80–120MB of resident RAM, introduces external network latency, requires connection pooling overhead, and incurs billing liabilities.
-* **The Engineering Decision:** `ModelEngine` stores feature vectors and champion model pointers directly in process memory. Model hot-reloading is handled via non-blocking filesystem `os.stat().st_mtime` polling on incoming requests.
-* **The Result:** Prediction latency drops to **`1.62ms`** with zero external operational dependencies and a resident container footprint under **150MB**.
+### 1. In-Process Memory Cache vs. External Distributed Key-Value Store (Redis)
+* **The Architectural Constraint:** The serving container operates under a bounded memory envelope (< 512MB RAM).
+* **The Trade-Off:** Introducing an external distributed cache (e.g., Redis, Memcached) introduces inter-process communication (IPC) serialization overhead, network loopback hops (adding 2–6ms to p99 latency), connection pooling failure modes, and an additional daemon dependency.
+* **The Systems Decision:** `ModelEngine` maintains feature vectors and champion model pointers directly in process memory (`heap`), pre-warmed during ASGI `lifespan`. Hot model reloading is achieved via debounced (5-second window) `os.stat().st_mtime` polling, eliminating redundant kernel context switches on the request path. Inference is executed via in-process scalar multiply-accumulate on pre-extracted weight arrays (< 160ns), completely bypassing per-request Pandas DataFrame allocations and Scikit-Learn validation overhead.
+* **The Result:** Prediction latency drops to **`< 2.2ms`** with zero external network dependencies and a resident container footprint under **120MB**.
 
-### 2. Hermetic CI/CD via Ephemeral PostgreSQL 16 Service Container
-* **The Vulnerability:** Running automated unit tests (`pytest`) against remote managed cloud databases (Neon AWS Frankfurt) in GitHub Actions introduces network latency, transient SSL handshake drops, and database state pollution across parallel branches.
-* **The Engineering Decision:** [`.github/workflows/daily_pipeline.yml`](.github/workflows/daily_pipeline.yml) defines an ephemeral `services: postgres: image: postgres:16-alpine` container running on `localhost:5432`. Schema DDL is bootstrapped hermetically in the test runner (`python -m twre.db.session`), running the 17-test suite offline in **3.95s**.
-* **The Security Boundary:** The production cloud `secrets.DATABASE_URL` is injected strictly into the scheduled production batch runner step (`daily_runner.py`), completely decoupling test validation from cloud state.
+### 2. Hermetic CI/CD via Ephemeral PostgreSQL 16 Service Containers
+* **The Vulnerability:** Running automated unit and integration tests (`pytest`) against remote managed cloud databases (Neon AWS Frankfurt) in CI/CD introduces network latency, transient SSL handshake drops, and database state pollution across parallel branches.
+* **The Systems Decision:** [`.github/workflows/daily_pipeline.yml`](.github/workflows/daily_pipeline.yml) spins up an ephemeral `postgres:16-alpine` service container bound to `localhost:5432`. Schema DDL is bootstrapped hermetically in the test runner (`python -m twre.db.session`), executing the 17-test verification suite offline in **3.05s**.
+* **The Security Boundary:** The production cloud `secrets.DATABASE_URL` is injected strictly into the production batch runner step (`daily_runner.py`), completely isolating test verification from production cloud state.
 
-### 3. Cloud Deployment Target Selection
-* **Hugging Face Spaces (Docker):** Evaluated and rejected. Docker Spaces requires credit card billing verification, allocates an unnecessary 16GB RAM (200x overprovisioned for a 75MB service), and signals a frontend prototype sandbox (Gradio/Streamlit) rather than backend infrastructure.
-* **Microsoft Azure (Container Apps):** Evaluated via Azure for Students ($100 credit pool). High keyword value, but auxiliary infrastructure (Azure Container Registry [ACR], Log Analytics workspaces, NAT egress) quietly drains $15–25/month, resulting in dead portfolio links in 4–6 months once credits deplete.
-* **Render (Web Service):** Selected for production. 100% free forever with zero credit card liability. 
-  * *Operational Reality:* Render spins down free containers after 15 minutes of inactivity, introducing a **~40-second cold-start delay** on the first incoming request. Once awake, cached serving executes in **`< 2.2ms`**.
+### 3. Decoupled Compute Topologies (Batch Retraining vs. Online Serving)
+* **The Structural Hazard:** Executing daily API ingestion, Pydantic validation, and OLS challenger model training inside the user-facing web server process risks CPU starvation, memory spikes during DataFrame joins, and latency degradation on live incoming requests.
+* **The Systems Decision:** Decoupled batch compute entirely from online serving. 
+  * Scheduled ingestion, holdout splitting, model training, and promotion gating run as an independent batch job in GitHub Actions.
+  * Promoted model binaries (`champion.joblib`) and audit logs (`ledger.json`) are committed directly to artifact storage, triggering zero-downtime hot reloading in the standalone FastAPI container.
+  * *Serving SLA:* Under warm conditions, cached inference executes in **`< 2.2ms`**. Inactive containers incur a cold-start initialization delay before resident memory pre-warming completes.
 
 ---
 

@@ -1,6 +1,6 @@
 import time
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Query, status
+from fastapi import FastAPI, Response, status
 
 from twre.service.engine import ModelEngine
 from twre.service.schemas import PredictionResponse, HealthResponse, MetricsResponse
@@ -37,25 +37,33 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Weather Residual Engine", lifespan=lifespan)  
 
 @app.get("/health", response_model=HealthResponse)
-def health_check():
+def health_check(response: Response):
     try:
         with resolve_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT 1;")
-                db_connected = True
+                db_ok = True
     except Exception as e:
-        db_connected = False
+        db_ok = False
         print(f"err during health check ({e})")
     
     model_loaded = engine.model is not None and engine.metadata is not None
     active_champion_model_id = engine.metadata.model_id if engine.metadata else None
-    status_str = "healthy" if (db_connected and model_loaded) else "not healthy"
     
+    if not db_ok:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        return HealthResponse(
+            status = "unhealthy",
+            model_loaded = model_loaded,
+            active_champion_model_id = active_champion_model_id,
+            db_connected = False
+        )
+
     return HealthResponse(
-        status=status_str,
+        status="healthy",
         model_loaded=model_loaded,
         active_champion_model_id=active_champion_model_id,
-        db_connected=db_connected
+        db_connected = db_ok
     )
 
 @app.get("/metrics", response_model=MetricsResponse)
