@@ -41,7 +41,7 @@ flowchart TD
     subgraph Ingestion["1. Ingestion & Data Contracts (02:00 UTC)"]
         OM["Open-Meteo Historical & Forecast APIs"]:::ext --> Worker["Ingestion Worker<br/>(src/twre/ingestion/worker.py)"]:::ext
         Worker --> Pydantic["Pydantic V2 Quarantining Gate<br/>(ObservationRecord, ForecastRecord)"]:::ext
-        Pydantic --> DB[("Neon PostgreSQL Store (AWS Frankfurt)<br/>1,012+ Contiguous Calendar Records<br/>ON CONFLICT DO UPDATE Idempotency")]:::db
+        Pydantic --> DB[("Neon PostgreSQL Store (AWS Frankfurt)<br/>1,016+ Contiguous Calendar Records<br/>ON CONFLICT DO UPDATE Idempotency")]:::db
     end
 
     subgraph MLOps["2. Continuous Retraining & Gating Loop"]
@@ -155,7 +155,7 @@ To prevent degraded or overfitted models from entering production, [`src/twre/mo
    $$\text{MAE}_{\text{challenger}} < \text{MAE}_{\text{champion}} - \delta$$
 3. **Atomic File Persistence:** Model serialization utilizes temporary `.tmp` file dumps followed by POSIX/NTFS atomic swaps (`os.replace`). This guarantees that concurrent ASGI reader threads never read partial or corrupted binary streams.
 4. **Dynamic Temporal Windows:** Rather than hardcoded calendar years, `split_train_holdout()` trains across an expanding historical window (asserting $\ge 365$ days) and benchmarks against a dynamic 90-day contiguous rolling holdout with strict non-overlapping temporal boundaries (`train.max() < holdout.min()`).
-5. **Immutable Audit Ledger & Git Persistence:** Model metadata (Git commit SHA, training MAE, holdout baseline MAE, holdout candidate MAE, promotion verdict, timestamp) is appended to [`artifacts/models/ledger.json`](artifacts/models/ledger.json). In CI/CD, promoted champions and ledger updates are automatically committed back to `master` (`[skip ci]`), preserving model provenance beyond ephemeral runner lifecycles.
+5. **Immutable Audit Ledger & Git Persistence:** Model metadata (Git commit SHA, training MAE, holdout baseline MAE, holdout candidate MAE, promotion verdict, timestamp) is appended to [`artifacts/models/ledger.json`](artifacts/models/ledger.json). In CI/CD, promoted champions and ledger updates are automatically committed back to `main` (`[skip ci]`), preserving model provenance beyond ephemeral runner lifecycles.
 
 ---
 
