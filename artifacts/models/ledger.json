@@ -520,6 +520,16 @@
             "holdout_model_mae": 0.6721381450090708,
             "is_promoted": false,
             "promotion_reason": "candidate model not promoted, underperforms current champion by 0.0248 degC (margin=0.0000 degC)"
+        },
+        {
+            "model_id": "model_20261111083705",
+            "created_at": "2026-11-11T08:37:05.855210+00:00",
+            "git_commit": "98b4c0d",
+            "train_mae": 0.5780745517982413,
+            "holdout_baseline_mae": 0.8747073332468669,
+            "holdout_model_mae": 0.6788404173641938,
+            "is_promoted": false,
+            "promotion_reason": "candidate model not promoted, underperforms current champion by 0.0228 degC (margin=0.0000 degC)"
         }
     ]
 }
